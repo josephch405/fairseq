@@ -56,7 +56,7 @@ def main(args, init_distributed=False):
 
     # Load valid dataset (we load training data below, based on the latest checkpoint)
     for valid_sub_split in args.valid_subset.split(','):
-        task.load_dataset(valid_sub_split, combine=False, epoch=0)
+        task.load_dataset(valid_sub_split, combine=False, epoch=1)
 
     # Build model and criterion
     model = task.build_model(args)
@@ -90,7 +90,7 @@ def main(args, init_distributed=False):
     while (
         lr > args.min_lr
         and (
-            epoch_itr.epoch < max_epoch
+            epoch_itr.epoch <= max_epoch
             # allow resuming training from the final checkpoint
             or epoch_itr._next_epoch_itr is not None
         )
@@ -148,7 +148,7 @@ def train(args, trainer, task, epoch_itr):
     # Initialize data iterator
     itr = epoch_itr.next_epoch_itr(
         fix_batches_to_gpus=args.fix_batches_to_gpus,
-        shuffle=(epoch_itr.epoch >= args.curriculum),
+        shuffle=(epoch_itr.epoch > args.curriculum),
     )
     update_freq = (
         args.update_freq[epoch_itr.epoch - 1]
@@ -173,14 +173,20 @@ def train(args, trainer, task, epoch_itr):
     valid_subsets = args.valid_subset.split(',')
     max_update = args.max_update or math.inf
     for samples in progress:
-        log_output = trainer.train_step(samples)
-        num_updates = trainer.get_num_updates()
-        if log_output is None:
-            continue
+        with metrics.aggregate('train_inner'):
+            log_output = trainer.train_step(samples)
+            if log_output is None:  # OOM, overflow, ...
+                continue
 
         # log mid-epoch stats
-        stats = get_training_stats(metrics.get_smoothed_values('train'))
-        progress.log(stats, tag='train', step=num_updates)
+        stats = get_training_stats(metrics.get_smoothed_values('train_inner'))
+        num_updates = trainer.get_num_updates()
+        progress.log(stats, tag='train_inner', step=num_updates)
+
+        # reset mid-epoch stats after each log interval
+        # the end-of-epoch stats will still be preserved
+        if num_updates % args.log_interval == 0:
+            metrics.reset_meters('train_inner')
 
         if (
             not args.disable_validation
@@ -306,8 +312,6 @@ def cli_main(modify_parser=None):
         port = random.randint(10000, 20000)
         args.distributed_init_method = 'tcp://localhost:{port}'.format(port=port)
         args.distributed_rank = None  # set based on device id
-        if max(args.update_freq) > 1 and args.ddp_backend != 'no_c10d':
-            logger.info('NOTE: you may get faster training with: --ddp-backend=no_c10d')
         torch.multiprocessing.spawn(
             fn=distributed_main,
             args=(args, ),

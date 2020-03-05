@@ -19,7 +19,7 @@ logging.basicConfig(
     level=logging.INFO,
     stream=sys.stdout,
 )
-logger = logging.getLogger('fairseq_cli.train')
+logger = logging.getLogger('fairseq_cli.validate')
 
 
 def main(args, override_args=None):
@@ -59,10 +59,9 @@ def main(args, override_args=None):
     criterion = task.build_criterion(model_args)
     criterion.eval()
 
-    # Load valid dataset (we load training data below, based on the latest checkpoint)
     for subset in args.valid_subset.split(','):
         try:
-            task.load_dataset(subset, combine=False, epoch=0)
+            task.load_dataset(subset, combine=False, epoch=1)
             dataset = task.dataset(subset)
         except KeyError:
             raise Exception('Cannot find dataset: ' + subset)
