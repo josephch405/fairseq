@@ -22,6 +22,7 @@ from fairseq.data import (
     PrependTokenDataset,
     StripTokenDataset,
     TruncateDataset,
+    CurriculumDataset
 )
 
 from fairseq.tasks import FairseqTask, register_task
@@ -39,7 +40,8 @@ def load_langpair_dataset(
     combine, dataset_impl, upsample_primary,
     left_pad_source, left_pad_target, max_source_positions,
     max_target_positions, prepend_bos=False, load_alignments=False,
-    truncate_source=False, append_source_id=False
+    truncate_source=False, append_source_id=False,
+    curriculum_training=False
 ):
 
     def split_exists(split, src, tgt, lang, data_path):
@@ -119,7 +121,8 @@ def load_langpair_dataset(
             align_dataset = data_utils.load_indexed_dataset(align_path, None, dataset_impl)
 
     tgt_dataset_sizes = tgt_dataset.sizes if tgt_dataset is not None else None
-    return LanguagePairDataset(
+
+    ds = LanguagePairDataset(
         src_dataset, src_dataset.sizes, src_dict,
         tgt_dataset, tgt_dataset_sizes, tgt_dict,
         left_pad_source=left_pad_source,
@@ -128,6 +131,11 @@ def load_langpair_dataset(
         max_target_positions=max_target_positions,
         align_dataset=align_dataset, eos=eos
     )
+
+    if curriculum_training:
+        return CurriculumDataset(ds)
+
+    return ds
 
 
 @register_task('translation')
@@ -196,6 +204,9 @@ class TranslationTask(FairseqTask):
                                  'e.g., \'{"beam": 4, "lenpen": 0.6}\'')
         parser.add_argument('--eval-bleu-print-samples', action='store_true',
                             help='print sample generations during validation')
+
+        parser.add_argument('--curriculum-training', action='store_true',
+                            help='samples curriculum')
         # fmt: on
 
     def __init__(self, args, src_dict, tgt_dict):
@@ -244,6 +255,8 @@ class TranslationTask(FairseqTask):
 
         # infer langcode
         src, tgt = self.args.source_lang, self.args.target_lang
+        
+        curriculum_training = self.args.curriculum_training and split == "train"
 
         self.datasets[split] = load_langpair_dataset(
             data_path, split, src, self.src_dict, tgt, self.tgt_dict,
@@ -255,6 +268,7 @@ class TranslationTask(FairseqTask):
             max_target_positions=self.args.max_target_positions,
             load_alignments=self.args.load_alignments,
             truncate_source=self.args.truncate_source,
+            curriculum_training=curriculum_training
         )
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):

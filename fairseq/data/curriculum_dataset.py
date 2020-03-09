@@ -37,23 +37,23 @@ class CurriculumDataset(BaseWrapperDataset):
     def __init__(
         self,
         dataset,
-        weights=None,
         replace=True,
-        size_ratio=1.0,
+        size_ratio=0.5,
         batch_by_size=True,
         seed=0,
         epoch=1,
+        bias=0.1,
+        curriculum_length=20 # TODO: try to refactor out of epochs based length
     ):
         super().__init__(dataset)
 
-        if weights is None:
-            self.weights = None
-
-        else:
-            assert len(weights) == len(dataset)
-            weights_arr = np.array(weights, dtype=np.float64)
-            weights_arr /= weights_arr.sum()
-            self.weights = plasma_utils.PlasmaArray(weights_arr)
+        # if weights is None:
+        #     self.weights = None
+        # else:
+        #     assert len(weights) == len(dataset)
+        #     weights_arr = np.array(weights, dtype=np.float64)
+        #     weights_arr /= weights_arr.sum()
+        #     self.weights = plasma_utils.PlasmaArray(weights_arr)
 
         self.replace = replace
 
@@ -62,6 +62,10 @@ class CurriculumDataset(BaseWrapperDataset):
             assert size_ratio < 1.0
         self.size_ratio = float(size_ratio)
         self.actual_size = np.ceil(len(dataset) * self.size_ratio).astype(int)
+
+        self.bias = bias
+        # TODO: replace with pacing module
+        self.slope = 1 / curriculum_length
 
         self.batch_by_size = batch_by_size
         self.seed = seed
@@ -79,9 +83,10 @@ class CurriculumDataset(BaseWrapperDataset):
 
     @property
     def sizes(self):
-        if isinstance(self.dataset.sizes, list):
-            return [s[self._cur_indices.array] for s in self.dataset.sizes]
-        return self.dataset.sizes[self._cur_indices.array]
+        # We sort by source sizes for now
+        if isinstance(self.dataset.src_sizes, list):
+            return [s[self._cur_indices.array] for s in self.dataset.src_sizes]
+        return self.dataset.src_sizes[self._cur_indices.array]
 
     def num_tokens(self, index):
         return self.dataset.num_tokens(self._cur_indices.array[index])
@@ -120,11 +125,25 @@ class CurriculumDataset(BaseWrapperDataset):
                 self._cur_epoch,  # epoch index
             ]
         )
+
+        # Calculate competency for this epoch
+        # TODO: separate/use our modules for this
+        competency = min(1, self.bias + (epoch - 1) * self.slope)
+
+        # filter based on length of sources
+        # TODO: incorporate other sampling scores
+        max_difficulty = np.percentile(self.dataset.src_sizes, competency * 100)
+        weights = np.zeros(len(self.dataset), dtype=np.float64)
+        passes_filter = (self.dataset.src_sizes < max_difficulty)
+        weights[passes_filter] = 1
+
+        weights /= weights.sum()
+
         self._cur_indices = plasma_utils.PlasmaArray(
             rng.choice(
                 len(self.dataset),
                 self.actual_size,
                 replace=self.replace,
-                p=(None if self.weights is None else self.weights.array),
+                p=weights,
             )
         )
