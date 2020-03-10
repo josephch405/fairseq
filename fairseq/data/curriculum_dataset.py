@@ -7,6 +7,7 @@ import numpy as np
 
 from . import BaseWrapperDataset, plasma_utils
 
+from tqdm import tqdm
 
 class CurriculumDataset(BaseWrapperDataset):
     """Randomly samples from a given dataset at each epoch.
@@ -65,7 +66,7 @@ class CurriculumDataset(BaseWrapperDataset):
 
         self.bias = bias
         # TODO: replace with pacing module
-        self.slope = 1 / curriculum_length
+        self.slope = 1 / (self.actual_size * curriculum_length)
 
         self.batch_by_size = batch_by_size
         self.seed = seed
@@ -129,24 +130,27 @@ class CurriculumDataset(BaseWrapperDataset):
             ]
         )
 
-        # Calculate competency for this epoch
-        # TODO: separate/use our modules for this
-        competency = min(1, self.bias + (epoch - 1) * self.slope)
-
-        # filter based on length of sources
-        # TODO: incorporate other sampling scores
-        max_difficulty = np.percentile(self.dataset.src_sizes, competency * 100)
+        sample_batch = 100
+        chosen_indices = np.array([], dtype=int)
+        i = 0
         weights = np.zeros(len(self.dataset), dtype=np.float64)
-        passes_filter = (self.dataset.src_sizes < max_difficulty)
-        weights[passes_filter] = 1
+        while i < self.actual_size:
+            t = (epoch - 1) * self.actual_size + i
+            competency = min(1, self.bias + t * self.slope)
+            max_difficulty = np.percentile(self.dataset.src_sizes, competency * 100)
+            # filter based on length of sources
+            # TODO: incorporate other sampling scores
+            passes_filter = (self.dataset.src_sizes < max_difficulty)
+            weights[passes_filter] = 1
 
-        weights /= weights.sum()
+            weights /= weights.sum()
+            chosen_indices = np.append(chosen_indices, rng.choice(
+                len(self.dataset),
+                min(sample_batch, self.actual_size - t),
+                p=weights,
+            ))
+            i += sample_batch
 
         self._cur_indices = plasma_utils.PlasmaArray(
-            rng.choice(
-                len(self.dataset),
-                self.actual_size,
-                replace=self.replace,
-                p=weights,
-            )
+            chosen_indices
         )
