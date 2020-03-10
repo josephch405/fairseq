@@ -146,7 +146,7 @@ class CurriculumDataset(BaseWrapperDataset):
             weights /= weights.sum()
             chosen_indices = np.append(chosen_indices, rng.choice(
                 len(self.dataset),
-                min(sample_batch, self.actual_size - t),
+                min(sample_batch, self.actual_size - i),
                 p=weights,
             ))
             i += sample_batch
