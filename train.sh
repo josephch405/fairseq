@@ -10,6 +10,6 @@ CUDA_VISIBLE_DEVICES=0 fairseq-train data-bin/iwslt16.tokenized.fr-en \
     --eval-bleu-detok moses --eval-bleu-remove-bpe --eval-bleu-print-samples \
     --best-checkpoint-metric bleu \
     --maximize-best-checkpoint-metric --tensorboard-logdir logdir/curric \
-    --max-epoch 60 --curriculum-training
+    --max-epoch 100 --curriculum-training \
+    --warmup-updates 4000
     # --clip-norm 0.0 --lr 5e-4 --lr-scheduler inverse_sqrt \
-    # --warmup-updates 4000 \

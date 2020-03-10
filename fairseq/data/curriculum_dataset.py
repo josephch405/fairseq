@@ -38,12 +38,12 @@ class CurriculumDataset(BaseWrapperDataset):
         self,
         dataset,
         replace=True,
-        size_ratio=0.5,
+        size_ratio=1,
         batch_by_size=True,
         seed=0,
         epoch=1,
         bias=0.1,
-        curriculum_length=20 # TODO: try to refactor out of epochs based length
+        curriculum_length=10 # TODO: try to refactor out of epochs based length
     ):
         super().__init__(dataset)
 
@@ -77,6 +77,9 @@ class CurriculumDataset(BaseWrapperDataset):
 
     def __getitem__(self, index):
         return self.dataset[self._cur_indices.array[index]]
+
+    def collater(self, samples):
+        return self.dataset.collater(samples)
 
     def __len__(self):
         return self.actual_size

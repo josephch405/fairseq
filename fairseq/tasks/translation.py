@@ -213,6 +213,8 @@ class TranslationTask(FairseqTask):
         super().__init__(args)
         self.src_dict = src_dict
         self.tgt_dict = tgt_dict
+        if self.args.curriculum_training:
+            self.dataset_to_epoch = {}
 
     @classmethod
     def setup_task(cls, args, **kwargs):
@@ -346,6 +348,30 @@ class TranslationTask(FairseqTask):
     def max_positions(self):
         """Return the max sentence length allowed by the task."""
         return (self.args.max_source_positions, self.args.max_target_positions)
+
+    def get_batch_iterator(
+        self, dataset, max_tokens=None, max_sentences=None, max_positions=None,
+        ignore_invalid_inputs=False, required_batch_size_multiple=1,
+        seed=1, num_shards=1, shard_id=0, num_workers=0, epoch=1,
+    ):
+        if self.args.curriculum_training:
+            # Recreate epoch iterator every epoch cause the underlying
+            # datasets are dynamic due to sampling.
+            if dataset in self.dataset_to_epoch:
+                self.dataset_to_epoch[dataset] += 1
+                epoch = self.dataset_to_epoch[dataset]
+            else:
+                self.dataset_to_epoch[dataset] = epoch
+            self.dataset_to_epoch_iter = {}
+            
+        epoch_iter = super().get_batch_iterator(
+            dataset, max_tokens, max_sentences, max_positions,
+            ignore_invalid_inputs, required_batch_size_multiple,
+            seed, num_shards, shard_id, num_workers, epoch,
+        )
+        if self.args.curriculum_training:
+            self.dataset_to_epoch_iter = {}
+        return epoch_iter
 
     @property
     def source_dictionary(self):
